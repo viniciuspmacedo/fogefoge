@@ -1,62 +1,175 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "time.h"
 #include "fogefoge.h"
+#include "mapa.h"
 
-int **mapa;
-int linhas, colunas;
+MAPA m;
+POSICAO heroi;
+int tempilula = 0;
 
-void alocamapa()
+int acabou()
 {
-    mapa = malloc(sizeof(char *) * linhas);
-    for (int i = 0; i < linhas; i++)
-    {
-        mapa[i] = malloc(sizeof(char *) * (colunas + 1));
-    }
+    POSICAO pos;
+
+    int perdeu = !encontramapa(&m, &pos, HEROI);
+    int ganhou = !encontramapa(&m, &pos, FANTASMA);
+
+    return ganhou || perdeu;
 }
 
-void lemapa()
+int ehdirecao(char direcao)
 {
-    FILE *f;
-    f = fopen("mapa.txt", "r");
-    if (f == 0)
-    {
-        printf("Erro ao carregar o mapa.");
-        exit(1);
-    }
-
-    fscanf(f, "%d %d", &linhas, &colunas);
-
-    alocamapa();
-
-    // carrega mapa
-    for (int i = 0; i < linhas; i++)
-    {
-        fscanf(f, "%s", mapa[i]);
-    }
-
-    fclose(f);
+    return direcao == ESQUERDA ||
+           direcao == CIMA ||
+           direcao == BAIXO ||
+           direcao == DIREITA;
 }
 
-void liberamapa()
+void move(char direcao)
 {
-    for (int i = 0; i < linhas; i++)
+
+    if (!ehdirecao(direcao))
+        return;
+
+    int proximox = heroi.x;
+    int proximoy = heroi.y;
+
+    switch (direcao)
     {
-        free(mapa[i]);
+    case ESQUERDA:
+        proximoy--;
+        break;
+    case CIMA:
+        proximox--;
+        break;
+    case BAIXO:
+        proximox++;
+        break;
+    case DIREITA:
+        proximoy++;
+        break;
     }
 
-    free(mapa);
+    if (!podeandar(&m, HEROI, proximox, proximoy))
+        return;
+
+    if (ehpersonagem(&m, PILULA, proximox, proximoy))
+    {
+        tempilula = 1;
+    }
+
+    andanomapa(&m, heroi.x, heroi.y, proximox, proximoy);
+    heroi.x = proximox;
+    heroi.y = proximoy;
+}
+
+void explodepilula()
+{
+    if (!tempilula)
+        return;
+    
+    explodepilulaaux(heroi.x, heroi.y, 0, 1, 3);
+	explodepilulaaux(heroi.x, heroi.y, 0, -1, 3);
+	explodepilulaaux(heroi.x, heroi.y, 1, 0, 3);
+	explodepilulaaux(heroi.x, heroi.y, -1, 0, 3);
+
+	tempilula = 0;
+}
+
+void explodepilulaaux(int x, int y, int somax, int somay, int qtd)
+{
+    if (qtd == 0)
+        return;
+    int novox = x + somax;
+    int novoy = y + somay;
+
+    if (!ehvalida(&m, novox, novoy))
+        return;
+    if (ehparede(&m, novox, novoy))
+        return;
+
+    m.matriz[novox][novoy] = VAZIO;
+
+    explodepilulaaux(novox, novoy, 1, 1, qtd - 1);
+}
+
+int praondefantasmavai(int xatual, int yatual,
+                       int *xdestino, int *ydestino)
+{
+
+    int opcoes[4][2] = {
+        {xatual, yatual + 1},
+        {xatual + 1, yatual},
+        {xatual, yatual - 1},
+        {xatual - 1, yatual}};
+
+    srand(time(0));
+    for (int i = 0; i < 10; i++)
+    {
+        int posicao = rand() % 4;
+
+        if (podeandar(&m, FANTASMA, opcoes[posicao][0], opcoes[posicao][1]))
+        {
+            *xdestino = opcoes[posicao][0];
+            *ydestino = opcoes[posicao][1];
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void fantasmas()
+{
+    MAPA copia;
+
+    copiamapa(&copia, &m);
+
+    for (int i = 0; i < copia.linhas; i++)
+    {
+        for (int j = 0; j < copia.colunas; j++)
+        {
+            if (copia.matriz[i][j] == FANTASMA)
+            {
+
+                int xdestino;
+                int ydestino;
+
+                int encontrou = praondefantasmavai(i, j, &xdestino, &ydestino);
+
+                if (encontrou)
+                {
+                    andanomapa(&m, i, j, xdestino, ydestino);
+                }
+            }
+        }
+    }
+
+    liberamapa(&copia);
 }
 
 int main()
 {
 
-    lemapa();
+    lemapa(&m);
+    encontramapa(&m, &heroi, HEROI);
 
-    for (int i = 0; i < linhas; i++)
+    do
     {
-        printf("%s\n", mapa[i]);
-    }
+        printf("Tem pilula: %s\n", (tempilula ? "SIM" : "NAO"));
+        imprimemapa(&m);
 
-    liberamapa();
-    return 0;
+        char comando;
+        scanf(" %c", &comando);
+
+        move(comando);
+        if (comando == BOMBA)
+            explodepilula();
+
+        fantasmas();
+
+    } while (!acabou());
+
+    liberamapa(&m);
 }
